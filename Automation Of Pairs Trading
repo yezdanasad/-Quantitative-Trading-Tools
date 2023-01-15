@@ -1,0 +1,73 @@
+import pandas as pd
+import datetime
+import time
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy as sp
+
+
+count = []
+def counter(length):
+  for m in range(length):
+    term = m+1
+    count.append(term)
+  return count
+
+
+
+period1 = int(time.mktime(datetime.datetime(2022,8,13).timetuple()))
+period2 = int(time.mktime(datetime.datetime(2022,11,15).timetuple()))
+interval = '1d'
+residuals=[]
+plotx =[]
+ploty =[]
+
+
+ticker1 = input("Enter ticker 1")
+
+url = f'https://query1.finance.yahoo.com/v7/finance/download/{ticker1}?period1={period1}&period2={period2}&interval=1d&events=history&includeAdjustedClose=true'
+df  = pd.read_csv(url)
+adjprice1 = df['Adj Close'].values.tolist()
+
+ticker2 = input("Enter ticker 2")
+
+url = f'https://query1.finance.yahoo.com/v7/finance/download/{ticker2}?period1={period1}&period2={period2}&interval=1d&events=history&includeAdjustedClose=true'
+df  = pd.read_csv(url)
+adjprice2 = df['Adj Close'].values.tolist()
+def best_fit(X, Y):
+
+    xbar = sum(X)/len(X)
+    ybar = sum(Y)/len(Y)
+    n = len(X) # or len(Y)
+
+    numer = sum([xi*yi for xi,yi in zip(X, Y)]) - n * xbar * ybar
+    denum = sum([xi**2 for xi in X]) - n * xbar**2
+
+    b = numer / denum
+    a = ybar - b * xbar
+
+    
+
+    return a, b
+eqn = best_fit(adjprice1,adjprice2)
+
+
+for k in range(len(adjprice1)):
+ res = adjprice2[k] - (((eqn[1])*(adjprice1[k]))+(eqn[0]))
+ residuals.append(res)
+numbers = counter(len(adjprice1))  
+
+a = np.array(residuals)
+r = sp.stats.pearsonr(adjprice1,adjprice2)
+print(r)
+'''plt.scatter(adjprice1,adjprice2)
+plt.xlabel(ticker1)
+plt.ylabel(ticker2)'''
+plt.plot(numbers, residuals)
+plt.scatter(numbers,residuals)
+plt.axhline(y = 3*(np.std(residuals)), color = 'g')
+plt.axhline(y = - 3*(np.std(residuals)), color = 'g')
+plt.axhline(y=0, color='r')
+plt.xlabel("No. of days")
+plt.ylabel("Residuals")
+plt.show()
