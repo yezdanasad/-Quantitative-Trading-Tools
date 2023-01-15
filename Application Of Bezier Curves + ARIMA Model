@@ -1,0 +1,169 @@
+import pandas as pd
+import datetime
+import time
+import numpy as np
+from sympy import Symbol
+import matplotlib.pyplot as plt
+import operator as op
+from functools import reduce
+from pandas import DataFrame
+from statsmodels.tsa.arima.model import ARIMA
+t = Symbol ('t')
+forecast_values = []
+count = []
+ 
+def counter(length):
+  for m in range(length):
+    term = m+1
+    count.append(term)
+  return count
+ 
+#here you cna change the stock ticker you are looking for 
+ticker ='v'
+ 
+#here is where you can change the period of time you are looking at, the date in lines 26 (start date) and 27 (end date), can be changed, always in YYYY,MM,DD, dont type 07 for july, just 7 is fine, similar thing for the days, dont do 09 just 9 is good.
+ 
+period1 = int(time.mktime(datetime.datetime(2022,10,1).timetuple()))
+period2 = int(time.mktime(datetime.datetime(2022,11,15).timetuple()))
+interval = '1d'
+ 
+ 
+url = f'https://query1.finance.yahoo.com/v7/finance/download/{ticker}?period1={period1}&period2={period2}&interval=1d&events=history&includeAdjustedClose=true'
+df  = pd.read_csv(url)
+Date = df['Date'].values.tolist()
+adjprice = df['Adj Close'].values.tolist()
+ 
+ 
+xcoords=counter(len(Date))
+ycoords=adjprice
+ 
+use_eqn = []
+def ncr(n, r):
+    r = min(r, n-r)
+    numer = reduce(op.mul, range(n, n-r, -1), 1)
+    denom = reduce(op.mul, range(1, r+1), 1)
+    return numer // denom
+ 
+def bstein_form (n,k):
+ bstein_eqn = []
+ for i in range(n+1):
+   t_n = (ncr(n,i))*(t**i)*((1-t)**(n-i))
+   bstein_eqn.append(t_n)
+   use_eqn.append(t_n)
+ 
+ 
+ return bstein_eqn
+ 
+f  = bstein_form(len(Date)-1,0)
+xeqn=[]
+yeqn= []
+ 
+for h in range(len(xcoords)):
+  new = (f[h])*(xcoords[h])
+  xeqn.append(new)
+for j in range(len(ycoords)):
+  newt= (f[j])*(adjprice[j])
+  yeqn.append(newt)
+xeqn = np.array(xeqn)
+yeqn = np.array(yeqn)
+ 
+usex = sum(xeqn)
+usey = sum(yeqn)
+ 
+plotx = []
+ploty= []
+ 
+u = np.linspace (0,1,250)
+u = u.tolist()
+ 
+for l in range(len(u)):
+  coordx = usex.subs(t,u[l])
+  plotx.append(coordx)
+ 
+ 
+ 
+for r in range(len(u)):
+  coordy = usey.subs(t,u[r])
+  ploty.append(coordy)
+ 
+ 
+ 
+ 
+model=ARIMA(df['Adj Close'],order=(5,0,1))
+model_fit=model.fit()
+model_fit.summary()
+#in line 99, if u want to predict more days with ARIMA, change the (steps = 14) to (steps  = the no,of days u want) for example (steps = 12) and leave everything else the same
+residuals = DataFrame(model_fit.resid)
+output = model_fit.forecast(steps = 14)
+print(output)
+# run the code once, with lines 99 to 126 (inclusive) commented out, then look at the graph produced and find the last instance of a blue line intersecting the red curve, that blue line will bo formed between two purple points, counts backwards from the ;ast one to find which numbers to put in here.
+m_line = ((adjprice[-3])-(adjprice[-4]))
+b = adjprice[-3] - ((adjprice[-3])-(adjprice[-4]))*(xcoords[-3])
+print(type(m_line))
+print(type(b))
+y_linear = (m_line)*(t) + b
+print(y_linear)
+k = np.linspace (xcoords[-4],xcoords[-3],250)
+k=k.tolist()
+
+y_linearplot =[]
+for i in range (len(k)):
+  coordi = y_linear.subs(t,k[i])
+  y_linearplot.append(coordi)
+k.reverse()
+ycoords_comp =[]
+x_intpoint = []
+y_intpoint =[]
+for i in range(len(k)):
+  coordinate = y_linear.subs(t,k[i])
+  ycoords_comp.append(coordinate)
+for i in range(len(k)):  
+ yfromline = ycoords_comp[i]
+ yfromcurve = ploty[i]
+ # if you run this code and see the the y coord of intersect is coming up empty change the +0.005 and -0.005 to a slightly larger number, if y coord of intersect is more than one number, decrease them slightly
+ if yfromline >(yfromcurve-0.08) and yfromline<(yfromcurve+0.08):
+   y_point= yfromline
+   y_intpoint.append(y_point)
+   ioftang = i
+ 
+k.reverse()
+y_intpoint = str(y_intpoint)
+y_intpoint = y_intpoint.strip("'").strip('[').strip(']')
+y_intpoint = float(y_intpoint)
+print(type(y_intpoint))
+print(f'THE Y COORD OF THE INTERSECTION IS  {y_intpoint}')
+x_intpoint = (y_intpoint-b)/(m_line)
+print(f'THE X COORD OF THE INTERSECTION IS  {x_intpoint}')
+#x_intpoint and y_intpoint are where the final intersection of a control polygon and bezier curve exists. ioftang is the index where the lines intersect, usong this we can draw a pretty decent tangent
+m_tang = (ploty[ioftang-1] - ploty[ioftang])/(plotx[ioftang-1]-plotx[ioftang])
+b = ploty[ioftang-1]-(m_tang)*(plotx[ioftang-1])
+y_tang = (m_tang)*(t)+b
+p = np.linspace(1,(xcoords[-1]+14),5)
+p = p.tolist()
+tang_ylist= []
+for i in range(len(p)):
+  tang_ycoord = y_tang.subs(t,p[i])
+  tang_ylist.append(tang_ycoord)
+orangex = []
+orangey = []
+orangex.append(x_intpoint)
+orangey.append(y_intpoint)
+ 
+ 
+#Drawing the graph
+output.plot(color = 'green')
+plt.xlabel("No. of Days")
+plt.ylabel (" Adj. Price")
+plt.plot(plotx,ploty,color = 'red')
+plt.scatter(xcoords,adjprice,color = 'purple')
+plt.plot(xcoords,adjprice)
+plt.plot(orangex,orangey,color = 'orange' )
+plt.plot(p,tang_ylist, color = 'black')
+plt.plot(k,y_linearplot,color ='yellow')
+plt.show()
+ 
+ 
+
+ 
+ 
+
