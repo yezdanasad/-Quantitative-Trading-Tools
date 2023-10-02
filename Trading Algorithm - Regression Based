@@ -1,0 +1,212 @@
+import pandas as pd
+import datetime
+import time
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy as sp
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
+import alpaca_trade_api as tradeapi
+import schedule 
+import time
+import requests
+# api key and secret key have been removed for privacy, replace them with ur own if u want to use this.
+API_KEY = "*******************"
+SECRET_KEY = "***********************************************"
+
+trading_client = TradingClient(API_KEY, SECRET_KEY, paper=True)
+
+account = trading_client.get_account()
+api = tradeapi.REST(API_KEY, SECRET_KEY, base_url='https://paper-api.alpaca.markets')
+# Setting parameters for all possible positions we can enter
+market_order_data_buy_long_ma = MarketOrderRequest(symbol="MA", qty=1, side=OrderSide.BUY, time_in_force=TimeInForce.GTC)
+market_order_data_short_ma = MarketOrderRequest(symbol="MA", qty=1, side=OrderSide.SELL, time_in_force=TimeInForce.GTC)
+market_order_data_buy_long_v = MarketOrderRequest(symbol="V", qty=1, side=OrderSide.BUY, time_in_force=TimeInForce.GTC)
+market_order_data_short_v = MarketOrderRequest(symbol="V", qty=1, side=OrderSide.SELL, time_in_force=TimeInForce.GTC)
+
+
+
+
+'''
+#submitting trade order
+
+market_order = trading_client.submit_order(market_order_data)
+for property_name, value in market_order:
+  print(f"\"{property_name}\": {value}")
+'''
+
+
+
+
+count = []
+def counter(length):
+  for m in range(length):
+    term = m+1
+    count.append(term)
+  return count
+
+def best_fit(X, Y):
+ xbar = sum(X)/len(X)
+ ybar = sum(Y)/len(Y)
+ n = len(X) # or len(Y)
+ numer = sum([xi*yi for xi,yi in zip(X, Y)]) - n * xbar * ybar
+ denum = sum([xi**2 for xi in X]) - n * xbar**2
+ b = numer / denum
+ a = ybar - b * xbar
+ return a, b
+
+
+
+#set up a  bunch uf parameteres for URL modififcation; this will allow us to scrape data from whatever period we need
+period1 = int(time.mktime(datetime.datetime(2023,8,26).timetuple()))
+period2 = int(time.mktime(datetime.datetime(2023,9,26).timetuple()))
+interval = '1d'
+residuals=[]
+plotx =[]
+ploty =[]
+
+
+#input the ticker for one of the pairs, convert to URL and scrape and store stock prices
+ticker1 = "v"
+
+
+url = f'https://query1.finance.yahoo.com/v7/finance/download/{ticker1}?period1={period1}&period2={period2}&interval=1d&events=history&includeAdjustedClose=true'
+df  = pd.read_csv(url)
+adjprice1 = df['Adj Close'].values.tolist()
+
+
+#take in the second input and scrape and collect stock price data for that one
+ticker2 = "ma"
+
+
+url = f'https://query1.finance.yahoo.com/v7/finance/download/{ticker2}?period1={period1}&period2={period2}&interval=1d&events=history&includeAdjustedClose=true'
+df  = pd.read_csv(url)
+adjprice2 = df['Adj Close'].values.tolist()
+
+
+#define an atrocious HUGE function that will determine the current status of where the securities prices are
+def get_security_situation ():
+#find the line of best fit for hte two stock prices
+ eqn = best_fit(adjprice1,adjprice2)
+#find the residuals (how far currnet price is away from the average _ie the line of best fit)
+ for k in range(len(adjprice1)):
+  res = adjprice2[k] - (((eqn[1])*(adjprice1[k]))+(eqn[0]))
+  residuals.append(res)
+#calculate pearsons correlation coefficient to maintain checks on corrrelation (were looking for 0.9+ inclusive)
+ a = np.array(residuals)
+ r = sp.stats.pearsonr(adjprice1,adjprice2)
+ return a, r
+
+
+residual_counter, pearson = get_security_situation()
+numbers = counter(len(adjprice1))
+eqn = best_fit(adjprice1,adjprice2)
+
+
+#giving names to a bunch of things to make trading logic easier to read.
+buy_short = 1*(np.std(residuals))
+buy_long =  -1*(np.std(residuals))
+buy_stoploss = - 3*(np.std(residuals))
+short_stoploss = 3*(np.std(residuals))
+
+#defining a function that will get current price of a stock without necessarily having an open position for that stock.
+def get_current_price(symbol):
+  # Get the last trade for the specified stock
+  last_trade = api.get_latest_trade(symbol)
+  # Extract the last traded price
+  last_trade_price = last_trade.price
+  last_trade_price = float(last_trade_price)
+  return last_trade_price
+
+  
+ 
+
+
+
+
+def get_current_qty(symbol):#function for getting the current amount of stock i have in an open position, which will work out fine i think,
+  try:
+    position =api.get_position('MA')
+    qty = int(position.qty)
+    print(f'there is {qty} active positions')
+  except:
+   print('no positions held yet')
+   qty = 0
+  return qty
+
+
+
+def position_entry() :
+ print('Running entry function')
+ current_residual = (get_current_price('MA')) - (((eqn[1])*(adjprice1[-1])) + eqn[0])
+ qty =get_current_qty('MA')
+ if abs(qty)>0:
+   print("position exists, no need to enter another")
+ else:
+   current_residual = (get_current_price('MA')) - (((eqn[1])*(adjprice1[-1])) + eqn[0])
+   if current_residual < buy_long and current_residual>  buy_stoploss:
+     market_order = trading_client.submit_order(market_order_data_buy_long_ma)
+     market_order = trading_client.submit_order(market_order_data_short_v)
+     print(f"long buy position entered for MA")
+     
+   elif current_residual>buy_short and current_residual<short_stoploss:
+     market_order = trading_client.submit_order(market_order_data_short_ma)
+     market_order = trading_client.submit_order(market_order_data_buy_long_v)
+     print(f"short sell position entered for MA")
+     
+   elif buy_short> current_residual and buy_long<current_residual:
+     print("residual is currently not deviated enough from 0 to buy or short")
+   else:
+    print("residual is outside of +/- 3 standard deviations, check to see of the correlation is still holding or not")
+   print(f'current residual is {current_residual} and buy long is {buy_long} ')
+   print(f'current residual is {current_residual} and buy short is{buy_short}')
+ 
+
+def position_exits():
+  print('Running exits function')
+  current_residual = (get_current_price('MA')) - (((eqn[1])*(adjprice1[-1])) + eqn[0])
+  
+  qty = get_current_qty('MA')
+  while abs(qty) == 1:# ie  i have 1 long or short position
+    if qty>0 and current_residual>=0:# ie  i have a long position in ma and i am going to sell it, and i have a short position in v, and am going to exit
+      market_order = trading_client.submit_order(market_order_data_short_ma)
+      market_order - trading_client.submit_order(market_order_data_buy_long_v)
+      print(f"MA long buy position has been exited at reisdual value = {current_residual}")
+    elif qty<0 and current_residual<=0 :#ie i have short position in ma and a long in v, will sell both
+      market_order = trading_client.submit_order(market_order_data_buy_long_ma)
+      market_order = trading_client.submit_order(market_order_data_short_v)
+      print(f"MA short sell has been exited at residual value = {current_residual}")
+    elif abs(qty)>1:
+      print("there are more than 1 positions (this shouldnt be happeing, something is wrong go fix it)")
+    else: 
+      print("no positions to worry about")
+  print ('___________________________')
+
+
+
+
+
+#setting up a function so that the position entry and position exit codes run one after the other every minute-ish.
+
+def my_function():#this is a function that executes entry check and exits checks one after the other
+    # check if we can enter a postion.
+    position_entry()
+
+    # Wait for a few seconds so that the first trade definetely goes through
+    time.sleep(5)
+
+    # see if we can cash in on a position.
+    position_exits()
+
+def schedule_task(): # i tell it how often to repeat
+    # Schedule the combined function to run every minute
+    schedule.every(1).minutes.do(my_function)
+
+    # Keep the script running to allow scheduled tasks to execute
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+if __name__ == "__main__": #call the function to set the automation process in motion
+    schedule_task()
